@@ -236,7 +236,7 @@ claude mcp add zeropath-securitycompass \
   --env ZEROPATH_TOKEN_ID=<your-token-id> \
   --env ZEROPATH_TOKEN_SECRET=<your-token-secret> \
   --env ZEROPATH_ORG_ID=<your-org-id> \
-  -- uvx securitycompass-mcp
+  -- uvx --from git+https://github.com/ZeroPathAI/securitycompass-mcp securitycompass-mcp
 
 # SD Elements MCP (remote HTTP)
 claude mcp add --transport http sde-mcp-server \
@@ -269,7 +269,7 @@ Cursor reads MCP servers from `~/.cursor/mcp.json` (global) or `.cursor/mcp.json
     },
     "zeropath-securitycompass": {
       "command": "uvx",
-      "args": ["securitycompass-mcp"],
+      "args": ["--from", "git+https://github.com/ZeroPathAI/securitycompass-mcp", "securitycompass-mcp"],
       "env": {
         "ZEROPATH_BASE_URL": "https://securitycompass.branch.zeropath.com/",
         "ZEROPATH_TOKEN_ID": "<your-token-id>",
@@ -310,7 +310,7 @@ hands you:
     },
     "zeropath-securitycompass": {
       "command": "uvx",
-      "args": ["securitycompass-mcp"],
+      "args": ["--from", "git+https://github.com/ZeroPathAI/securitycompass-mcp", "securitycompass-mcp"],
       "env": {
         "ZEROPATH_BASE_URL": "https://securitycompass.branch.zeropath.com/",
         "ZEROPATH_TOKEN_ID": "<your-token-id>",

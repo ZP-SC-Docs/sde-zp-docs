@@ -204,6 +204,17 @@ nothing to install for it.
 The three subsections below give a copy-paste configuration for all three servers
 together, in each client's own format.
 
+<Warning>
+`ZEROPATH_BASE_URL` is **mandatory** for the **ZeroPath ↔ Security Compass MCP**.
+It must point at your dedicated ZeroPath Security Compass deployment (for example
+`https://securitycompass.branch.zeropath.com/`), **not** the public
+`https://zeropath.com` SaaS host. The server's built-in default targets the
+public host, so leaving this unset connects to the wrong deployment and every
+tool call fails. This is the ZeroPath deployment URL — it is distinct from your
+SD Elements base URL, which you supply separately when you connect your instance
+(see [Connect your SD Elements instance](#1-connect-your-sd-elements-instance)).
+</Warning>
+
 ### Claude Code
 
 Claude Code's recommended path is the `claude mcp add` command (see the
@@ -221,6 +232,7 @@ claude mcp add zeropath \
 
 # ZeroPath - Security Compass MCP (local)
 claude mcp add zeropath-securitycompass \
+  --env ZEROPATH_BASE_URL=https://securitycompass.branch.zeropath.com/ \
   --env ZEROPATH_TOKEN_ID=<your-token-id> \
   --env ZEROPATH_TOKEN_SECRET=<your-token-secret> \
   --env ZEROPATH_ORG_ID=<your-org-id> \
@@ -259,6 +271,7 @@ Cursor reads MCP servers from `~/.cursor/mcp.json` (global) or `.cursor/mcp.json
       "command": "uvx",
       "args": ["securitycompass-mcp"],
       "env": {
+        "ZEROPATH_BASE_URL": "https://securitycompass.branch.zeropath.com/",
         "ZEROPATH_TOKEN_ID": "<your-token-id>",
         "ZEROPATH_TOKEN_SECRET": "<your-token-secret>",
         "ZEROPATH_ORG_ID": "<your-org-id>"
@@ -299,6 +312,7 @@ hands you:
       "command": "uvx",
       "args": ["securitycompass-mcp"],
       "env": {
+        "ZEROPATH_BASE_URL": "https://securitycompass.branch.zeropath.com/",
         "ZEROPATH_TOKEN_ID": "<your-token-id>",
         "ZEROPATH_TOKEN_SECRET": "<your-token-secret>",
         "ZEROPATH_ORG_ID": "<your-org-id>"

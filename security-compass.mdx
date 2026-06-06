@@ -1,0 +1,698 @@
+---
+title: "Security Compass / SD Elements"
+description: "Link an SD Elements project to a ZeroPath repository so its countermeasures become scanning rules that ZeroPath runs against your code."
+---
+
+<Info>
+This integration is in **beta**. The workflow below is driven mostly through your
+AI assistant (using ZeroPath's MCP servers), with a matching dashboard path under
+**Settings → Integrations** wherever one exists.
+</Info>
+
+## Overview
+
+This integration connects a ZeroPath scan to an existing
+[SD Elements](https://docs.sdelements.com/release/latest/guide/) project. Your SD
+Elements countermeasures are translated into ZeroPath scanning rules, and
+ZeroPath scans your repository against them.
+
+Three things sit in this relationship:
+
+- Your **SD Elements project** is the source of truth for countermeasures —
+  the security requirements your application is expected to meet.
+- Your **Git repository** is what ZeroPath scans.
+- **ZeroPath** sits in the middle. It maps the project to the repository,
+  classifies each countermeasure (covered by built-in analysis, covered by an
+  auto-generated rule, or not supported), and scans the code against the
+  resulting rules.
+
+By the end of this page you will have an SD Elements project linked to a
+repository in ZeroPath, with its countermeasures synced into ZeroPath as
+scanning rules and scans running against them.
+
+## Before you start
+
+### Accounts you need
+
+- **A ZeroPath tenant with admin access.** If you don't have one, talk to your
+  Security Compass contact or email ZeroPath at
+  [support@zeropath.com](mailto:support@zeropath.com). Provisioning a tenant
+  typically takes about 24 hours.
+- **An SD Elements deployment** with API access, and at least one project you
+  want to link.
+- **A Git repository** in GitHub, GitLab, Bitbucket, or Azure Repos that you can
+  connect to ZeroPath.
+
+### Software you need
+
+- An AI assistant that supports MCP. The configuration below covers Claude Code,
+  Cursor, and GitHub Copilot.
+- For the two ZeroPath MCP servers you install locally, the
+  [`uv`](https://docs.astral.sh/uv/) toolchain — both servers run through `uvx`.
+  The SD Elements MCP server is hosted by your SD Elements instance, so there is
+  nothing to install for it.
+
+### Credentials you need
+
+You will collect six values. Keep them somewhere safe while you set things up.
+
+<AccordionGroup>
+  <Accordion title="ZeroPath base URL">
+    The host you visit to log in. For ZeroPath's SaaS this is
+    `https://zeropath.com`. Enterprise or dedicated tenants may use a different
+    host — use whatever appears in your browser when you are signed in, with no
+    trailing path.
+  </Accordion>
+  <Accordion title="ZeroPath organization ID">
+    The identifier for your ZeroPath organization (it looks like
+    `org_0123ABC…`). Find it under **Settings → General** in the dashboard, or
+    ask your AI assistant once the ZeroPath MCP is connected: *"What is my
+    ZeroPath organization ID?"*
+  </Accordion>
+  <Accordion title="ZeroPath API token (ID + secret)">
+    Go to **Settings → API Tokens**, click to create a key, name it, choose an
+    expiry, and copy both the **token ID** and the **token secret**. The secret
+    is shown only once. Creating a token requires the **admin** role. See
+    [API Tokens](/authentication/api-tokens) for the full reference.
+  </Accordion>
+  <Accordion title="SD Elements base URL">
+    The host you visit to use SD Elements, for example
+    `https://<your-sde-instance>.sdelements.com`. Host only, no trailing path.
+  </Accordion>
+  <Accordion title="SD Elements API key">
+    Create an API token inside SD Elements (under your user profile / API
+    tokens) and copy it. Follow the SD Elements
+    [user guide](https://docs.sdelements.com/release/latest/guide/) and
+    [API documentation](https://docs.sdelements.com/release/latest/api/) for
+    their token flow rather than the ZeroPath one.
+  </Accordion>
+  <Accordion title="SD Elements project ID">
+    The numeric ID shown in the project's URL when you view it in SD Elements
+    (for example, `…/projects/8/`). You'll supply one project ID per mapping.
+  </Accordion>
+</AccordionGroup>
+
+### Network access
+
+If your repository or your SD Elements instance sits behind a VPN or in a
+private network, allow ZeroPath's outbound IP addresses through:
+
+```
+50.112.134.81
+44.232.87.32
+52.37.222.237
+```
+
+## Provision your ZeroPath tenant
+
+If you don't have a tenant yet, request one through your Security Compass contact
+or at [support@zeropath.com](mailto:support@zeropath.com). Use one organization
+per proof-of-concept; separate customers get separate tenants for isolation.
+
+Once you're in, you can add teammates. Roles are **Admin**, **Member**, and
+**Viewer** — see [Teams & Permissions](/platform/teams) for what each can do.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Invite alice@example.com as an admin to my ZeroPath organization."* The
+    assistant adds the member and confirms the role it assigned.
+  </Tab>
+  <Tab title="Use the dashboard">
+    Go to **Settings → Members**, click **Invite**, enter the email, and pick a
+    role.
+  </Tab>
+</Tabs>
+
+## Connect a repository
+
+ZeroPath scans a Git repository, so connect one before you map it. Pick the
+provider you use; the full walkthrough for each lives in the
+[Quick Start](/quickstart#connection-method).
+
+Go to **Add Repositories** in the dashboard and follow the flow for your
+provider, then select the repositories to add.
+
+Provider-specific notes:
+
+- **GitHub.** Use the **Install GitHub App** button on the Add Repositories page.
+  The GitHub App requests read access to code plus read/write on checks and pull
+  requests so ZeroPath can post results and open fix PRs.
+- **GitLab.** Create a group or project access token with the `api` scope and
+  the **Maintainer** role, then set it up under **Add Repositories → GitLab**.
+  See the [Quick Start](/quickstart#connection-method).
+- **Bitbucket.** Connect through **Add Repositories → Bitbucket** as described in
+  the [Quick Start](/quickstart#connection-method).
+- **Azure Repos.** Connect from the same Add Repositories page.
+
+<Note>
+You can also connect a repository by direct URL with an access token, which is
+how repositories are wired up in many SD Elements pilots. Token connections
+scan fine but don't get the full set of GitHub App features (automatic PR
+checks, fix PRs). Use the GitHub App when you want those.
+</Note>
+
+If the repository is behind a VPN, apply the same network allowlisting noted in
+[Before you start](#network-access).
+
+## Set up your SD Elements project
+
+You want to finish this section with an SD Elements project whose survey is
+complete and whose countermeasures are populated, ready to map.
+
+ZeroPath doesn't change how you build a project in SD Elements — create the
+project, complete its survey, and review the resulting countermeasures using the
+[SD Elements user guide](https://docs.sdelements.com/release/latest/guide/). A
+typical project (for example, a Django or .NET web app profile) ends up with a
+few hundred countermeasures spread across phases like Requirements and
+Development.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    With the SD Elements MCP connected you can explore without leaving chat:
+    *"List my SD Elements business units,"* *"Find the project named 'Payment
+    Service' in SD Elements,"* or *"Show the countermeasures for SD Elements
+    project Payment Service."* The assistant returns the matching business units,
+    the project (with its numeric ID), and the countermeasure list with titles,
+    phases, and status.
+  </Tab>
+  <Tab title="Use the SD Elements UI">
+    Create the project, complete the survey, and view countermeasures directly in
+    SD Elements. Their docs cover each step — see the
+    [SD Elements user guide](https://docs.sdelements.com/release/latest/guide/).
+  </Tab>
+</Tabs>
+
+## Install the ZeroPath MCP servers
+
+Two ZeroPath MCP servers run on your machine:
+
+- The **ZeroPath MCP** —
+  [github.com/ZeroPathAI/zeropath-mcp-server](https://github.com/ZeroPathAI/zeropath-mcp-server).
+  Read repositories, run scans, inspect issues and rules. Its install steps are
+  also mirrored in [MCP Installation](/mcp/installation).
+- The **ZeroPath ↔ Security Compass MCP** —
+  [github.com/ZeroPathAI/securitycompass-mcp](https://github.com/ZeroPathAI/securitycompass-mcp).
+  This one owns the SD Elements integration: connecting your instance, mapping
+  projects to repositories, syncing rules, and reading the audit.
+
+Both use the same four values you collected: your ZeroPath base URL,
+organization ID, API token ID, and API token secret. The third server, the **SD
+Elements MCP**, is hosted at `https://<your-sde-instance>.sdelements.com/mcp` and
+authenticates with your SD Elements API key in the `sde-api-key` header — there's
+nothing to install for it.
+
+The three subsections below give a copy-paste configuration for all three servers
+together, in each client's own format.
+
+### Claude Code
+
+Claude Code's recommended path is the `claude mcp add` command (see the
+[Claude Code MCP docs](https://code.claude.com/docs/en/mcp)). Run these three
+commands, substituting your values:
+
+```bash
+# ZeroPath MCP (local)
+claude mcp add zeropath \
+  --env ZEROPATH_BASE_URL=https://zeropath.com \
+  --env ZEROPATH_TOKEN_ID=<your-token-id> \
+  --env ZEROPATH_TOKEN_SECRET=<your-token-secret> \
+  --env ZEROPATH_ORG_ID=<your-org-id> \
+  -- uvx --from git+https://github.com/ZeroPathAI/zeropath-mcp-server zeropath-mcp-server
+
+# ZeroPath - Security Compass MCP (local)
+claude mcp add zeropath-securitycompass \
+  --env ZEROPATH_TOKEN_ID=<your-token-id> \
+  --env ZEROPATH_TOKEN_SECRET=<your-token-secret> \
+  --env ZEROPATH_ORG_ID=<your-org-id> \
+  -- uvx securitycompass-mcp
+
+# SD Elements MCP (remote HTTP)
+claude mcp add --transport http sde-mcp-server \
+  https://<your-sde-instance>.sdelements.com/mcp \
+  --header "sde-api-key: <your-sde-api-key>"
+```
+
+All options come before the server name, and the `--` separates the name from the
+command that launches the server. If you prefer a file, the same three servers go
+under the `mcpServers` key in `.mcp.json`.
+
+### Cursor
+
+Cursor reads MCP servers from `~/.cursor/mcp.json` (global) or `.cursor/mcp.json`
+(per project), under the `mcpServers` key (see the
+[Cursor MCP docs](https://cursor.com/docs/context/mcp)):
+
+```json
+{
+  "mcpServers": {
+    "zeropath": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ZeroPathAI/zeropath-mcp-server", "zeropath-mcp-server"],
+      "env": {
+        "ZEROPATH_BASE_URL": "https://zeropath.com",
+        "ZEROPATH_TOKEN_ID": "<your-token-id>",
+        "ZEROPATH_TOKEN_SECRET": "<your-token-secret>",
+        "ZEROPATH_ORG_ID": "<your-org-id>"
+      }
+    },
+    "zeropath-securitycompass": {
+      "command": "uvx",
+      "args": ["securitycompass-mcp"],
+      "env": {
+        "ZEROPATH_TOKEN_ID": "<your-token-id>",
+        "ZEROPATH_TOKEN_SECRET": "<your-token-secret>",
+        "ZEROPATH_ORG_ID": "<your-org-id>"
+      }
+    },
+    "sde-mcp-server": {
+      "url": "https://<your-sde-instance>.sdelements.com/mcp",
+      "headers": {
+        "sde-api-key": "<your-sde-api-key>"
+      }
+    }
+  }
+}
+```
+
+### GitHub Copilot
+
+GitHub Copilot in VS Code reads MCP servers from `.vscode/mcp.json` (per
+workspace) or your user `settings.json`, under the `servers` key (see
+[GitHub's MCP docs](https://docs.github.com/en/copilot/how-tos/context/model-context-protocol/extending-copilot-chat-with-mcp)).
+The SD Elements block here matches the configuration your SD Elements instance
+hands you:
+
+```json
+{
+  "servers": {
+    "zeropath": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ZeroPathAI/zeropath-mcp-server", "zeropath-mcp-server"],
+      "env": {
+        "ZEROPATH_BASE_URL": "https://zeropath.com",
+        "ZEROPATH_TOKEN_ID": "<your-token-id>",
+        "ZEROPATH_TOKEN_SECRET": "<your-token-secret>",
+        "ZEROPATH_ORG_ID": "<your-org-id>"
+      }
+    },
+    "zeropath-securitycompass": {
+      "command": "uvx",
+      "args": ["securitycompass-mcp"],
+      "env": {
+        "ZEROPATH_TOKEN_ID": "<your-token-id>",
+        "ZEROPATH_TOKEN_SECRET": "<your-token-secret>",
+        "ZEROPATH_ORG_ID": "<your-org-id>"
+      }
+    },
+    "sde-mcp-server": {
+      "url": "https://<your-sde-instance>.sdelements.com/mcp",
+      "headers": {
+        "sde-api-key": "<your-sde-api-key>"
+      }
+    }
+  }
+}
+```
+
+<Tip>
+**Sanity check.** Once a client is configured, ask your assistant: *"Show me the
+Security Compass integration currently configured for my ZeroPath organization."*
+You'll either see the existing integration and its mappings, or a confirmation
+that none is set up yet.
+</Tip>
+
+## Security Compass MCP tools
+
+The ZeroPath ↔ Security Compass MCP server exposes the tools below. You don't
+call them directly — your assistant invokes them when you ask in plain English
+(the [End-to-end workflow](#end-to-end-workflow) shows the prompts). They're
+listed here for reference.
+
+| Tool | What it does |
+|---|---|
+| `securityCompass_getIntegration` | Read the configured SD Elements connection and every project-to-repository mapping, with each mapping's latest sync status. |
+| `securityCompass_upsertIntegration` | Create or update the connection: SD Elements base URL, API token, and enabled state. |
+| `securityCompass_testConnection` | Validate the SD Elements credentials against a specific project and return that project's countermeasure count. |
+| `securityCompass_addProjectMapping` | Map an SD Elements project to a ZeroPath repository. |
+| `securityCompass_removeProjectMapping` | Remove a project-to-repository mapping. |
+| `securityCompass_syncRules` | Sync a mapping: fetch the project's countermeasures, classify coverage, and create ZeroPath rules where needed. |
+| `securityCompass_getMappingAudit` | Read the per-countermeasure coverage breakdown for a mapping (built-in analysis, natural-language rule, or unsupported). Available after the first successful sync. |
+| `securityCompass_getSyncHistory` | Read recent Security Compass audit-log events: connection updates, mapping add/remove, and sync runs. |
+
+## End-to-end workflow
+
+This is the operating manual. Each step has an assistant prompt and, where one
+exists, the matching dashboard path. The dashboard side lives in **Settings →
+Integrations**: the **Security Compass** card shows the connection, its mappings,
+and each mapping's sync status; its gear icon opens **Manage Security Compass
+integration**, where the mapping actions live.
+
+### 1. Connect your SD Elements instance
+
+One-time per organization. You supply the SD Elements base URL and API key.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Connect my Security Compass instance at
+    https://&lt;your-sde-instance&gt;.sdelements.com to ZeroPath using this API
+    key."* The assistant saves the connection and confirms it.
+  </Tab>
+  <Tab title="Use the dashboard">
+    **Settings → Integrations → Add Integration → Security Compass**. In the
+    dialog, enter the **SD Elements Base URL** and **API Token**, leave **Enable
+    Integration** on, and click **Create Integration**.
+  </Tab>
+</Tabs>
+
+### 2. Test the connection
+
+Confirm the credentials work and ZeroPath can see countermeasures on a project.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Test my Security Compass connection against project &lt;SDE project
+    ID&gt;."* The assistant reports success and how many countermeasures it sees
+    on that project.
+  </Tab>
+  <Tab title="Use the dashboard">
+    In **Manage Security Compass integration**, under **Add Mapping**, enter an
+    **SD Elements Project ID** and click **Test Connection**. A success message
+    shows the countermeasure count for that project.
+  </Tab>
+</Tabs>
+
+### 3. Update credentials
+
+When you rotate the SD Elements API key (or point at a different instance),
+re-save the connection. This overwrites the stored credentials and base URL but
+leaves your existing project mappings intact.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Update my Security Compass connection to use this new API key."*
+  </Tab>
+  <Tab title="Use the dashboard">
+    In **Manage Security Compass integration → Connection Settings**, update the
+    **Base URL** or **API Token** and click **Save Settings**. Leaving the token
+    blank keeps the current one.
+  </Tab>
+</Tabs>
+
+### 4. Map a project to a repository
+
+A mapping links one SD Elements project to one repository. You can map several
+projects to one repository, and one project to several repositories.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Map SD Elements project &lt;ID&gt; to repository &lt;repo name&gt; in
+    ZeroPath."* The assistant creates the mapping and confirms it.
+  </Tab>
+  <Tab title="Use the dashboard">
+    In **Manage Security Compass integration → Add Mapping**, enter the **SD
+    Elements Project ID**, pick the **Repository** from the dropdown, and click
+    **Add Mapping**.
+  </Tab>
+</Tabs>
+
+### 5. Sync rules from countermeasures
+
+Syncing fetches the project's countermeasures, classifies each one, and creates
+ZeroPath rules where they're needed. The run moves through a few stages — it
+fetches the countermeasures, classifies coverage, and reports a summary.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Sync rules for the &lt;project&gt; to &lt;repo&gt; mapping."* The assistant
+    reports a summary along the lines of: *356 countermeasures — 274 covered by
+    built-in analysis, a set covered by newly created natural-language rules, and
+    51 not currently supported.*
+  </Tab>
+  <Tab title="Use the dashboard">
+    In **Manage Security Compass integration**, click the **Sync** (refresh) icon
+    on the mapping. When it finishes, the mapping shows a green **success** status
+    with the time and a "tasks covered" count.
+  </Tab>
+</Tabs>
+
+<Note>
+Only one sync runs per mapping at a time. If you ask for another while one is in
+progress, ZeroPath tells you a sync is already running rather than starting a
+second one.
+</Note>
+
+### 6. Review the mapping audit
+
+The audit is the per-countermeasure breakdown: for each task, whether ZeroPath
+covers it with built-in analysis, covers it with an auto-generated
+natural-language rule, or doesn't yet support it. This is the artifact most
+security reviewers care about.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Show me the mapping audit for project &lt;ID&gt;."* The assistant lists
+    each countermeasure with its coverage category.
+  </Tab>
+  <Tab title="Use the dashboard">
+    In **Manage Security Compass integration**, click the **Export** (download)
+    icon on the mapping to download the audit as CSV. The file has one row per
+    countermeasure with its task ID, title, coverage category, and the name of
+    the natural-language rule when one was generated.
+  </Tab>
+</Tabs>
+
+### 7. Trigger a scan
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Run a full scan on &lt;repo&gt;."* The assistant starts the scan and
+    confirms it's queued.
+  </Tab>
+  <Tab title="Use the dashboard">
+    Open the repository, go to **Scans**, and start a **full scan**. For
+    hands-off operation, set a schedule instead — see
+    [Scanner Settings](/platform/scanner-settings#scan-scheduling).
+  </Tab>
+</Tabs>
+
+### 8. Check sync and scan history
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Show recent Security Compass sync events"* and *"Show recent scans on
+    &lt;repo&gt;."* The assistant returns the sync log (started, fetched,
+    completed entries with counts) and the scan history.
+  </Tab>
+  <Tab title="Use the dashboard">
+    The **Security Compass** card under Settings → Integrations shows each
+    mapping's latest sync status. Scan history lives on the repository's
+    **Scans** tab.
+  </Tab>
+</Tabs>
+
+### 9. Review findings
+
+Findings appear in ZeroPath under **Issues**, filterable by repository.
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Summarize findings from the latest scan of &lt;repo&gt;."*
+  </Tab>
+  <Tab title="Use the dashboard">
+    Open the **Issues** view in ZeroPath and filter by the repository.
+  </Tab>
+</Tabs>
+
+### Run the whole pipeline at once
+
+You don't have to do the steps one at a time. With both ZeroPath MCPs and the SD
+Elements MCP connected, a single prompt can carry the whole pipeline:
+
+> *"Set up &lt;repo&gt; with SD Elements project &lt;ID&gt;: create the mapping,
+> sync rules, run the audit, kick off a full scan, and summarize what came
+> back."*
+
+The assistant creates the mapping, runs the sync (and reports the
+SAST / natural-language-rule / unsupported breakdown), surfaces the audit, starts
+the scan, and summarizes the findings once the scan finishes.
+
+## How ZeroPath turns countermeasures into rules
+
+### Whole-repository analysis
+
+ZeroPath analyzes the whole repository. It identifies the applications inside it,
+maps sources, sinks, and the relationships among them, and builds a
+[threat model](/platform/threat-model) per application. Traditional flaws are
+evaluated source-to-sink; higher-level controls are evaluated agentically against
+that threat model. For the deeper picture, see the
+[SAST Overview](/scanning/sast-overview) and
+[Custom Rules](/platform/custom-rules).
+
+When you sync a mapping, each countermeasure lands in one of three buckets:
+
+- **Built-in coverage** — ZeroPath's standard analysis already detects this
+  class of issue (for example, "Validate all forms of input" or "Set HttpOnly
+  flag on session cookies").
+- **Natural-language rule** — the countermeasure maps to a policy ZeroPath
+  enforces through an auto-generated [custom rule](/platform/custom-rules) scoped
+  to the mapped repository (for example, an audit-logging or password-policy
+  requirement).
+- **Not supported** — the countermeasure isn't related to code development, or
+  it can't be implemented or enforced through static analysis (for example,
+  "Verify that penetration testing has been performed"). These are skipped during
+  sync.
+
+### Where mapped findings show up
+
+<Note>
+A dedicated dashboard view that ties scan findings back to the specific SD
+Elements countermeasures they relate to is a work in progress. For now, review
+coverage through the mapping audit (step 6) and review findings in the standard
+**Issues** view.
+</Note>
+
+### What that means for coverage
+
+Out of the box, ZeroPath covers a large share of a project's countermeasures
+directly, with much of the remainder covered by auto-generated rules and a
+smaller tail that a code scan can't verify. The audit (step 6) is the
+per-countermeasure record of which is which for your project.
+
+## PR vs. full-branch scanning
+
+### Full scans
+
+The default mode. Full scans run on a schedule (commonly nightly) and build the
+repository cache that ZeroPath reuses across scan types. Configure the schedule
+in [Scanner Settings](/platform/scanner-settings#scan-scheduling).
+
+### PR scans
+
+Enabled per repository, PR scans check each pull request using the cache built by
+full scans. Most teams start with full scans on `main`, get comfortable, then
+turn on PR scans. See [PR Scanning](/scanning/pr-scanning).
+
+<Tabs>
+  <Tab title="Ask your assistant">
+    *"Turn on PR scanning for &lt;repo&gt;."*
+  </Tab>
+  <Tab title="Use the dashboard">
+    Open the repository, go to **Scanner Settings**, and toggle **PR scanning**.
+    See [Scanner Settings](/platform/scanner-settings).
+  </Tab>
+</Tabs>
+
+## Security and trust
+
+ZeroPath stores integration credentials and vulnerability records in an
+encrypted, per-tenant database. Source code is cloned only at scan time, inside a
+container, and removed when the scan finishes.
+
+ZeroPath runs external penetration tests and maintains a vulnerability
+disclosure program. SOC 2 reporting is in progress; a letter of intent is
+available on request. For the current compliance status and to request reports,
+see the resources below.
+
+- ZeroPath Trust Center: [zeropath.com/trust-center](https://zeropath.com/trust-center)
+- ZeroPath Trust Portal: [zeropath.trust.site](https://zeropath.trust.site/)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Rule sync fails fetching SD Elements tasks (404)">
+    The SD Elements project ID in the mapping no longer exists in the connected
+    SD Elements tenant. Confirm the project exists in SD Elements and re-add the
+    mapping with the correct ID.
+  </Accordion>
+  <Accordion title="API key not visible in the dashboard">
+    Creating a ZeroPath API token requires the admin role. If you have the
+    Viewer or Member role, ask an org admin to create the token for you. See
+    [API Tokens](/authentication/api-tokens).
+  </Accordion>
+  <Accordion title="A repository behind a VPN can't be scanned">
+    ZeroPath's outbound traffic needs to reach the repository. Allowlist
+    ZeroPath's outbound IPs (see [Network access](#network-access)).
+  </Accordion>
+  <Accordion title="The integration is pointed at the wrong SD Elements instance">
+    If you run more than one SD Elements deployment, update the connection's base
+    URL and API key (step 3) to point at the right one. Existing mappings are
+    preserved.
+  </Accordion>
+  <Accordion title='"Save connection settings (Base URL) first"'>
+    In the dashboard, save the connection settings (base URL and token) before
+    you test a project or add a mapping. Test Connection runs against the saved
+    base URL.
+  </Accordion>
+  <Accordion title="Rule sync says it's already running">
+    Only one sync runs per mapping at a time. Wait for the in-progress run to
+    finish, then start it again.
+  </Accordion>
+  <Accordion title="The mapping audit is empty">
+    The audit is available only after a successful sync. Run sync for the mapping
+    first, then view or export the audit.
+  </Accordion>
+</AccordionGroup>
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Can one SD Elements project map to multiple repositories?">
+    Yes — and multiple projects can map to one repository.
+  </Accordion>
+  <Accordion title="Which version control providers are supported?">
+    GitHub, GitLab, Bitbucket, and Azure Repos.
+  </Accordion>
+  <Accordion title="Can ZeroPath run on-prem alongside an on-prem SD Elements?">
+    The recommended setup today is SaaS. For on-prem requirements, talk to
+    [ZeroPath support](mailto:support@zeropath.com).
+  </Accordion>
+  <Accordion title="Do I set up the SD Elements connection once, or per repository?">
+    Once per organization. You save one connection (base URL and API key), then
+    add a mapping for each SD Elements project and repository pair.
+  </Accordion>
+  <Accordion title="Which countermeasures does ZeroPath sync?">
+    The countermeasures SD Elements marks relevant for the project — the ones
+    produced by completing the project survey. Finish the survey before you sync
+    so the full set is available.
+  </Accordion>
+  <Accordion title="Where do the generated rules live, and can I edit them?">
+    Each rule ZeroPath creates from a countermeasure is a standard
+    [custom rule](/platform/custom-rules) scoped to the mapped repository. View,
+    edit, or disable them on the Rules page or through your assistant, the same as
+    any other custom rule.
+  </Accordion>
+  <Accordion title="Does ZeroPath change anything in SD Elements?">
+    No. Today the integration reads countermeasures from SD Elements; it does not
+    write back to your SD Elements project.
+  </Accordion>
+  <Accordion title="My countermeasures changed in SD Elements. How do I update ZeroPath?">
+    Re-run the sync for the mapping. ZeroPath reads countermeasures at sync time,
+    so a fresh sync picks up additions, edits, and removals.
+  </Accordion>
+  <Accordion title="Do the MCP servers need to stay running for scans?">
+    No. Scans run on ZeroPath's infrastructure, on a schedule or on demand. The
+    MCP servers are only how you drive setup and queries from your assistant.
+  </Accordion>
+  <Accordion title="Who can configure the integration and create mappings?">
+    Managing the connection and mappings is gated by your organization's
+    permissions, and creating a ZeroPath API token requires the admin role. See
+    [Teams & Permissions](/platform/teams).
+  </Accordion>
+</AccordionGroup>
+
+## Assistant prompts you'll use most
+
+**Setup**
+- "Show me the Security Compass integration configured for my ZeroPath organization."
+- "Connect my Security Compass instance at &lt;SDE URL&gt; to ZeroPath using this API key."
+- "Test my Security Compass connection against project &lt;SDE project ID&gt;."
+
+**Mapping and sync**
+- "Map SD Elements project &lt;ID&gt; to repository &lt;repo&gt; in ZeroPath."
+- "Sync rules for the &lt;project&gt; to &lt;repo&gt; mapping."
+- "Show me the mapping audit for project &lt;ID&gt;."
+
+**Scanning and results**
+- "Run a full scan on &lt;repo&gt;."
+- "Show recent Security Compass sync events."
+- "Summarize findings from the latest scan of &lt;repo&gt;."
